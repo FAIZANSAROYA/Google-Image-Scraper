@@ -1,0 +1,12 @@
+requests>=2.31.0
+Pillow>=10.3.0
+streamlit>=1.59.0
+
+
+
+
+
+
+
+
+
