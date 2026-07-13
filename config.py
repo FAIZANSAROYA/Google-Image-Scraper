@@ -12,7 +12,7 @@ class ScraperConfig:
     serpapi_key: str = "2e5bda6aed110a89dc4d4e98f2e3454634618db216152967c90513e15fddb4c1"
     images_per_keyword: int = 50
     regions: List[str] = field(default_factory=list)
-    maximum_scraping: bool = False
+    maximum_scraping: bool = True
     similarity_specificity_margin: float = 0.02
     min_candidates: int = 150
     similarity_relative_margin: float = 0.15
