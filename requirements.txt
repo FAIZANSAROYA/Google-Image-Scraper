@@ -1,12 +1,7 @@
 requests>=2.31.0
 Pillow>=10.3.0
 streamlit>=1.59.0
+ddgs>=6.0.0
 
-
-
-
-
-
-
-
-
+# Optional — only needed for CLI CLIP verification (main.py --verify)
+# sentence-transformers>=2.6.0

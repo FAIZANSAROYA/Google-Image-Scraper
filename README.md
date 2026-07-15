@@ -1,64 +1,75 @@
-# Openverse Image Downloader
+# 🎞️ Image Studio
 
-A modular, keyword-based image downloader built on the Openverse API.
+A keyword image scraper with a premium Streamlit UI, an automatic
+image-processing pipeline, and a full library manager (browse, sort,
+filter, preview, rename, move, delete).
 
 ## Requirements
 
 - Python 3.10+
 - `pip install -r requirements.txt`
 
-## Usage
+## Run the app
 
 ```bash
-python main.py --keywords "red panda" "golden retriever" --count 40
+streamlit run app.py
 ```
 
-Options:
+Then use the sidebar to set keywords, image count, regions, and workers,
+and press **Run scraper**. Browse everything in the **Dashboard** and
+**Gallery** tabs.
 
-| Flag | Description | Default |
-|---|---|---|
-| `--keywords` | One or more search terms (space-separated, quote multi-word terms) | required |
-| `--count` | Target number of images per keyword | 50 |
-| `--output` | Root output directory | `downloaded_images` |
-| `--formats` | Allowed image formats | jpg jpeg png webp |
-| `--concurrent-downloads` | Parallel download workers | 8 |
+## What happens to each image
 
-## Output structure
+Every downloaded image is validated and processed into a derivative set,
+recorded in a per-category `_manifest.json`:
 
 ```
 downloaded_images/
-├── red_panda/
-│   ├── 3f9c1a2b7d4e5f6a.jpg
-│   └── ...
-└── golden_retriever/
-    ├── 8a1b2c3d4e5f6789.png
-    └── ...
+└── red_car/
+    ├── _manifest.json
+    ├── originals/   <uuid>_<timestamp>.jpg   (untouched backup)
+    ├── full/        <uuid>_<timestamp>.jpg   (optimized, <=2560px)
+    ├── medium/      <uuid>_<timestamp>.jpg   (<=800px, gallery/preview)
+    ├── thumbs/      <uuid>_<timestamp>.jpg   (200x200 cover-cropped)
+    └── webp/        <uuid>_<timestamp>.webp  (WebP of the full image)
 ```
 
-Files are named by a hash of their content, which is also how duplicates
-are detected and skipped (two identical images always map to the same
-hash, regardless of which URL they came from).
+- **Unique names** — `uuid + timestamp`, collision-free and sortable.
+- **Deduplication** — identical bytes (SHA-256) are skipped per keyword.
+- **Format safety** — JPEG targets flatten transparency; PNG/WebP keep alpha.
+- **EXIF orientation** honored so nothing shows up sideways.
 
-## How it works
+## Modules
 
-1. **`scraper.py`** queries Openverse for a keyword and returns
-  downloadable image URLs from the API response.
-2. **`downloader.py`** downloads candidate URLs concurrently, validates
-   that the bytes are actually a real image in an allowed format,
-   hashes the content to skip duplicates, and writes to
-   `<output>/<keyword>/<hash>.<ext>`.
-3. **`main.py`** wires it together per keyword and keeps going even if
-   one keyword or one image fails.
+| File | Responsibility |
+|---|---|
+| `app.py` | Streamlit UI: dashboard, gallery, scrape flow, preview modal |
+| `ui_components.py` | Theme (exact palette), CSS, reusable render helpers |
+| `image_manager.py` | `ImageProcessor` (pipeline) + `ImageLibrary` (scan/sort/filter/rename/move/delete) |
+| `downloader.py` | Concurrent download + dedup, runs each image through the pipeline |
+| `scraper.py` | DuckDuckGo image search (no API key) |
+| `config.py` | `ScraperConfig` — scrape + pipeline settings |
+| `main.py` | Optional CLI entry point |
+| `verifier.py` | Optional CLIP-based relevance verification (CLI only) |
 
-## Notes and limitations
+## UI features
 
-- **Rate limiting.** Openverse is a shared public API; if requests slow
-  down or fail, reduce concurrency or request count.
-- **Terms of Service / copyright.** Scraped images may be copyrighted.
-  This tool is meant for personal, research, or fair-use scenarios —
-  make sure your use case complies with Openverse source licenses and
-  applicable copyright law before redistributing or using images
-  commercially.
-- **Full-resolution extraction is best-effort.** Openverse returns a
-  direct image URL and, when available, a foreign landing page URL for
-  attribution or inspection.
+- **Dashboard** — total images, storage used, category count, recent uploads.
+- **Gallery** — responsive equal-size cards (`object-fit: cover`, lazy-loaded),
+  sort by newest/oldest/name/size/type, filter by category and extension, search.
+- **Preview modal** — zoom in/out, download, open source, copy paths,
+  rename, move to another category, delete.
+- **Theme** — premium dark palette (#2563EB / #7C3AED / #06B6D4 on #0F172A),
+  soft shadows, hover motion, skeleton loaders, empty states, responsive down
+  to mobile, reduced-motion respected.
+
+## Notes & limitations
+
+- **Legacy folders.** Older loose-image folders (no manifest) are still shown
+  in the gallery via a filesystem fallback, but rename/move are disabled for them.
+- **CLI verification.** `main.py --verify` uses CLIP on the *top level* of a
+  category folder. Since processed images now live in subfolders, verification
+  is effectively a no-op for new runs; use the app for management instead.
+- **Copyright.** Scraped images may be copyrighted — use for personal,
+  research, or fair-use scenarios and respect source licenses.

@@ -9,7 +9,7 @@ class ScraperConfig:
     concurrent_downloads: int
 
     # --- OPTIONAL/SETTINGS: Ye settings fix hain ---
-    serpapi_key: str = "2e5bda6aed110a89dc4d4e98f2e3454634618db216152967c90513e15fddb4c1"
+   # serpapi_key: str = "2e5bda6aed110a89dc4d4e98f2e3454634618db216152967c90513e15fddb4c1"
     images_per_keyword: int = 50
     regions: List[str] = field(default_factory=list)
     maximum_scraping: bool = True
