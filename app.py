@@ -286,6 +286,22 @@ st.markdown(
         box-shadow: 0 2px 8px rgba(0,0,0,.5);
     }
 
+    /* ===== Fullscreen view: undo gallery cropping so the picture
+       shows at its real size, centered - like a proper image viewer ===== */
+    *:fullscreen [data-testid="stImage"] img,
+    [data-testid="stFullScreenFrame"] > div:first-child:not([data-testid]) img {
+        height: 100% !important;
+        max-height: 100vh !important;
+        width: auto !important;
+        max-width: 100vw !important;
+        object-fit: contain !important;
+        border: none !important;
+        border-radius: 0 !important;
+        margin: 0 auto !important;
+    }
+    *:fullscreen [data-testid="stCheckbox"] { display: none !important; }
+    *:fullscreen { background: #000 !important; }
+
     /* Hide default Streamlit aesthetic rules */
     #MainMenu { visibility: hidden; }
     header { visibility: hidden; }
