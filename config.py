@@ -24,8 +24,8 @@ class ScraperConfig:
     allowed_formats: tuple = ("jpg", "jpeg", "png", "webp")
 
     # --- Download behaviour ---
-    download_timeout_seconds: int = 15
-    max_download_retries: int = 2
+    download_timeout_seconds: int = 8
+    max_download_retries: int = 1
     min_image_bytes: int = 1_000
 
     # --- Misc ---

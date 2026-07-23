@@ -476,42 +476,77 @@ with st.sidebar:
         try:
             downloader = ImageDownloader(config)
             scraper = OpenverseImageScraper(config)
-            job["msg"] = "Finding matching images..."; job["progress"] = 15
-            scraper.search(keyword)
-            image_results = scraper.collect_image_urls(
-                keyword, total_images, region=region if region != "Global" else "")
-            if job["stop"].is_set():
-                job["flash"] = "Scraping stopped."; return
-            job["progress"] = 45
-            if not image_results:
-                job["flash"] = getattr(scraper, "last_block_reason", None) or "No images found."
-                return
-            job["msg"] = f"Downloading {len(image_results)} files..."
-            summary = downloader.download_all(
-                image_results, stop_event=job["stop"],
-                progress_cb=lambda d, t: job.update(
-                    progress=45 + int(35 * d / max(t, 1)), msg=f"Downloading {d}/{t}..."))
-            job["progress"] = 80
-            job["refresh"] = True
-            if job["stop"].is_set():
-                job["flash"] = f"Stopped safely. {summary.get('downloaded', 0)} images saved."
-                return
+            from queue import Queue
             if VERIFIER_AVAILABLE:
-                from verifier import verify_folder  # lazy: heavy torch import
-                job["msg"] = "Filtering results (threshold 0.25)..."
-                v = verify_folder(str(output_path), keyword, threshold=0.25)  # primary
-                kept = v["kept"]
-                if kept > total_images:  # still too many -> stricter secondary pass
-                    job["msg"] = "Refining results (threshold 0.27)..."
-                    v = verify_folder(str(output_path), keyword, threshold=0.27)
-                    kept = v["kept"]
-                job["flash"] = (f"Scraped into {final_folder_name}: "
-                                f"{kept} images kept after filtering.")
+                from verifier import keep_top_n  # lazy: heavy torch import
+
+            def _count_and_trim(limit=None):
+                files = sorted((p for p in output_path.iterdir()
+                                if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".gif")),
+                               key=lambda p: p.stat().st_mtime)
+                if limit is not None:
+                    for extra in files[limit:]:
+                        extra.unlink(missing_ok=True)
+                    return min(len(files), limit)
+                return len(files)
+
+            valid = 0
+            total_downloaded = 0
+            summary = {}
+            exhausted = False
+            need = total_images
+            # Max 2 streaming passes: pass 2 only tops up a CLIP shortfall.
+            for attempt in (1, 2):
+                buffer_need = max(int(need * 1.25), need + 8) if VERIFIER_AVAILABLE else need
+                url_q = Queue()
+                collect_stop = threading.Event()
+                job["msg"] = "All providers searching in parallel..."
+                job["progress"] = 20
+                scraper.collect_parallel(
+                    keyword, need, region=region if region != "Global" else "",
+                    url_queue=url_q, stop_event=collect_stop)
+                s = downloader.download_stream(
+                    url_q, buffer_need, stop_event=job["stop"],
+                    progress_cb=lambda dn, t: job.update(
+                        progress=20 + int(55 * dn / max(t, 1)),
+                        msg=f"Downloading {dn}/{t} (all providers live)..."))
+                collect_stop.set()  # cancel remaining provider work immediately
+                exhausted = s.get("downloaded", 0) < buffer_need  # queue ended early
+                scraper.record_downloaded(s.pop("ok_urls", []))
+                total_downloaded += s.get("downloaded", 0)
+                summary = s
+                if job["stop"].is_set():
+                    job["refresh"] = True
+                    job["flash"] = f"Stopped safely. {total_downloaded} images saved."
+                    return
+                if VERIFIER_AVAILABLE:
+                    job["msg"] = f"Ranking by relevance (best {total_images} kept)..."
+                    job["progress"] = 80
+                    v = keep_top_n(str(output_path), keyword, total_images, min_score=0.25)
+                    valid = v["kept"]
+                else:
+                    valid = _count_and_trim(total_images)
+                need = total_images - valid
+                if need <= 0 or exhausted:
+                    break
+                job["msg"] = f"{valid}/{total_images} valid — topping up {need} more..."
+            job["progress"] = 90
+            job["refresh"] = True
+            if valid >= total_images:
+                job["flash"] = f"Target met: exactly {valid} valid images in {final_folder_name}."
+            elif total_downloaded == 0:
+                job["flash"] = (f"Download failed: 0 saved (failed={summary.get('failed',0)}, "
+                                f"bad-format={summary.get('skipped_format',0)}, dup={summary.get('duplicates',0)}). "
+                                "Internet/firewall check karein ya logs dekhein.")
             else:
-                job["flash"] = f"Successfully scraped {summary.get('downloaded', 0)} images into {final_folder_name}!"
+                job["flash"] = (f"{valid}/{total_images} valid images in {final_folder_name} — "
+                                "all available sources exhausted.")
+            if not VERIFIER_AVAILABLE:
+                job["flash"] += " ⚠️ Relevance filter OFF — install sentence-transformers."
             job["progress"] = 100
         except Exception as e:
-            job["flash"] = f"Error: {e}"
+            logger_msg = str(e).encode("ascii", "replace").decode()
+            job["flash"] = f"Error: {logger_msg}"
         finally:
             job["running"] = False
 
@@ -696,7 +731,7 @@ if _view == tab2.name:
         # Sort & Filter Controls
         filter_col1, filter_col2, filter_col3, filter_col4 = st.columns([2, 2, 2, 6])
         with filter_col1:
-            sort_by = st.selectbox("Sort by", ["Newest", "Oldest", "Name A–Z", "Name Z–A", "Largest", "Smallest", "Type"], key="gallery_sort_select")
+            sort_by = st.selectbox("Sort by", ["Name A–Z", "Newest", "Oldest", "Name Z–A", "Largest", "Smallest", "Type"], key="gallery_sort_select")
         with filter_col2:
             ext_filter = st.selectbox("Format", ["All", "jpg", "jpeg", "png", "webp", "gif"], key="gallery_ext_filter")
         with filter_col3:

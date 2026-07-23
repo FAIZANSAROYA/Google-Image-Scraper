@@ -5,3 +5,9 @@ ddgs>=6.0.0
 
 # Optional — only needed for CLI CLIP verification (main.py --verify)
 # sentence-transformers>=2.6.0
+
+# Optional — enables the Google Images (Playwright) provider.
+# If not installed, Google falls back to the requests+regex provider
+# automatically (no crash, no config change needed).
+# playwright>=1.44.0
+# then run once: playwright install chromium

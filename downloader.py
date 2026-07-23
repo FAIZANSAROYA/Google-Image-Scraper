@@ -48,6 +48,7 @@ class ImageDownloader:
         """
         summary = {"downloaded": 0, "duplicates": 0, "failed": 0, "skipped_format": 0, "stopped": 0}
         failed_results = []
+        ok_urls = summary["ok_urls"] = []
         # Stop early once we have enough (target + 20% buffer for CLIP filtering)
         enough = max(int(self.config.images_per_keyword * 1.2), self.config.images_per_keyword + 5)
 
@@ -58,6 +59,8 @@ class ImageDownloader:
                 outcome = future.result()
                 if outcome == "failed":
                     failed_results.append(futures[future])
+                elif outcome == "downloaded":
+                    ok_urls.append(futures[future].image_url)
                 summary[outcome] = summary.get(outcome, 0) + 1
                 done += 1
                 if progress_cb:
@@ -83,10 +86,54 @@ class ImageDownloader:
                         if outcome != "failed":
                             summary["failed"] -= 1
                             summary[outcome] = summary.get(outcome, 0) + 1
+                            if outcome == "downloaded":
+                                ok_urls.append(futures[future].image_url)
             finally:
                 self.config.download_timeout_seconds = old_timeout
 
         logger.info("Download summary: %s", summary)
+        return summary
+
+    def download_stream(self, url_queue, needed: int, stop_event=None,
+                        progress_cb=None) -> dict:
+        """Consumes ImageResults from url_queue with concurrent workers,
+        starting downloads the moment URLs arrive (no waiting for providers).
+        Stops instantly once `needed` images are saved or the queue ends."""
+        from queue import Empty
+        summary = {"downloaded": 0, "duplicates": 0, "failed": 0,
+                   "skipped_format": 0, "stopped": 0, "ok_urls": []}
+        lock = threading.Lock()
+        done = threading.Event()
+
+        def worker():
+            while not done.is_set() and not (stop_event is not None and stop_event.is_set()):
+                try:
+                    item = url_queue.get(timeout=1.0)
+                except Empty:
+                    continue
+                if item is None:
+                    url_queue.put(None)   # let other workers see the sentinel
+                    return
+                outcome = self._download_one(item, stop_event)
+                with lock:
+                    summary[outcome] = summary.get(outcome, 0) + 1
+                    if outcome == "downloaded":
+                        summary["ok_urls"].append(item.image_url)
+                        if progress_cb:
+                            try:
+                                progress_cb(summary["downloaded"], needed)
+                            except Exception:
+                                pass
+                        if summary["downloaded"] >= needed:
+                            done.set()   # target hit: stop all workers NOW
+
+        workers = [threading.Thread(target=worker, daemon=True)
+                   for _ in range(self.config.concurrent_downloads)]
+        for w in workers:
+            w.start()
+        for w in workers:
+            w.join()
+        logger.info("Stream download summary: %s", summary)
         return summary
 
     # ------------------------------------------------------------------ #
